@@ -324,12 +324,12 @@ if uploaded_file is not None:
     st.markdown('---')
 
 
-    # --- EXCEL ANALYSIS RESULTS GENERATOR ---
+    # --- EXCEL ANALYSIS RESULTS GENERATOR (WITH ROBUST DATE FILTERING) ---
     def generate_excel_analysis_report():
       excel_rows = []
       for m in unique_meters:
         d_sub_all = df[df[meter_col] == m].sort_values(time_col)
-        if start_date and end_date:
+        if start_date and end_date and not d_sub_all.empty:
           mask_ex = (d_sub_all[time_col].dt.date >= start_date) & (
               d_sub_all[time_col].dt.date <= end_date
           )
@@ -339,7 +339,6 @@ if uploaded_file is not None:
 
         _, _, m_no, _, _, _, t_data = analyze_dt(d_sub, m)
         
-        # t_data order: '>80%', '>90%', '>100%', '>110%', '>120%', '>130%'
         row_dict = {'Meter_No': m_no}
         inst_80 = t_data[0][1]
         inst_90 = t_data[1][1]
