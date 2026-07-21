@@ -207,7 +207,7 @@ if uploaded_file is not None:
 
     st.markdown('---')
 
-    # Generate interactive plot
+    # Generate interactive plot (UI display)
     fig, ax = plt.subplots(figsize=(14, 7), dpi=300)
     ax.plot(
         df_selected[time_col],
@@ -252,34 +252,7 @@ if uploaded_file is not None:
     ax.grid(True, linestyle='--', alpha=0.5)
     ax.legend(loc='upper left')
 
-    col_labels = ['Loading', 'Instances', 'Perm. Dur. (min)']
-    table_cell_text = [[row[0], str(row[1]), str(row[2])] for row in table_data]
-
-    table = ax.table(
-        cellText=table_cell_text,
-        colLabels=col_labels,
-        loc='upper right',
-        bbox=[0.78, 1.01, 0.22, 0.28],
-    )
-    table.auto_set_font_size(False)
-    table.set_fontsize(8)
-
-    for key, cell in table.get_celld().items():
-      row_idx = key[0]
-      cell.set_edgecolor('#b0b0b0')
-      if row_idx == 0:
-        cell.set_facecolor('#1f77b4')
-        cell.set_text_props(color='white', fontweight='bold')
-      else:
-        instance_count = table_data[row_idx - 1][1]
-        if instance_count > 0:
-          cell.set_facecolor('#fdf2f2')
-          cell.set_text_props(color='darkred', fontweight='bold')
-        else:
-          cell.set_facecolor('#ffffff')
-          cell.set_text_props(color='#333333', fontweight='normal')
-
-    plt.subplots_adjust(top=0.85, bottom=0.1, left=0.08, right=0.95)
+    plt.subplots_adjust(top=0.88, bottom=0.1, left=0.08, right=0.95)
     st.pyplot(fig)
 
     with st.expander('View Raw Data Records for Selected DT'):
@@ -288,7 +261,7 @@ if uploaded_file is not None:
     st.markdown('---')
 
 
-    # PDF Generator Function (Chart + Clean ReportLab Table below)
+    # PDF Generator Function (Chart + Clean ReportLab Table below with conditional row highlighting)
     def generate_pdf_report(target_df, m_id):
       d_sel, d_id, m_no, cap, l_series, c_col, t_data = analyze_dt(
           target_df, m_id
@@ -389,23 +362,45 @@ if uploaded_file is not None:
       for row in t_data:
         table_content.append([str(row[0]), str(row[1]), str(row[2])])
 
-      t_style = TableStyle([
+      # Base table style
+      t_style_commands = [
           ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1f77b4')),
           ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
           ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
           ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
           ('FONTSIZE', (0, 0), (-1, 0), 9),
           ('BOTTOMPADDING', (0, 0), (-1, 0), 6),
-          ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#f9f9f9')),
           ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#d0d0d0')),
           ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
           ('FONTSIZE', (0, 1), (-1, -1), 8),
           ('TOPPADDING', (0, 1), (-1, -1), 4),
           ('BOTTOMPADDING', (0, 1), (-1, -1), 4),
-      ])
+      ]
+
+      # Dynamically apply conditional background/text color for rows with violations > 0
+      for idx, row in enumerate(t_data):
+        instances = row[1]
+        row_idx = idx + 1  # 0 is header
+        if instances > 0:
+          t_style_commands.append(
+              ('BACKGROUND', (0, row_idx), (-1, row_idx), colors.HexColor('#fdf2f2'))
+          )
+          t_style_commands.append(
+              ('TEXTCOLOR', (0, row_idx), (-1, row_idx), colors.HexColor('#8B0000'))
+          )
+          t_style_commands.append(
+              ('FONTNAME', (0, row_idx), (-1, row_idx), 'Helvetica-Bold')
+          )
+        else:
+          t_style_commands.append(
+              ('BACKGROUND', (0, row_idx), (-1, row_idx), colors.HexColor('#f9f9f9'))
+          )
+          t_style_commands.append(
+              ('TEXTCOLOR', (0, row_idx), (-1, row_idx), colors.HexColor('#333333'))
+          )
 
       summary_table = Table(
-          table_content, colWidths=[220, 220, 240], style=t_style
+          table_content, colWidths=[220, 220, 240], style=TableStyle(t_style_commands)
       )
       story.append(summary_table)
 
@@ -534,23 +529,43 @@ if uploaded_file is not None:
             for row in t_data:
               table_content.append([str(row[0]), str(row[1]), str(row[2])])
 
-            t_style = TableStyle([
+            t_style_commands = [
                 ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1f77b4')),
                 ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
                 ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
                 ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
                 ('FONTSIZE', (0, 0), (-1, 0), 9),
                 ('BOTTOMPADDING', (0, 0), (-1, 0), 6),
-                ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#f9f9f9')),
                 ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#d0d0d0')),
                 ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
                 ('FONTSIZE', (0, 1), (-1, -1), 8),
                 ('TOPPADDING', (0, 1), (-1, -1), 4),
                 ('BOTTOMPADDING', (0, 1), (-1, -1), 4),
-            ])
+            ]
+
+            for i_idx, row in enumerate(t_data):
+              instances = row[1]
+              r_idx = i_idx + 1
+              if instances > 0:
+                t_style_commands.append(
+                    ('BACKGROUND', (0, r_idx), (-1, r_idx), colors.HexColor('#fdf2f2'))
+                )
+                t_style_commands.append(
+                    ('TEXTCOLOR', (0, r_idx), (-1, r_idx), colors.HexColor('#8B0000'))
+                )
+                t_style_commands.append(
+                    ('FONTNAME', (0, r_idx), (-1, r_idx), 'Helvetica-Bold')
+                )
+              else:
+                t_style_commands.append(
+                    ('BACKGROUND', (0, r_idx), (-1, r_idx), colors.HexColor('#f9f9f9'))
+                )
+                t_style_commands.append(
+                    ('TEXTCOLOR', (0, r_idx), (-1, r_idx), colors.HexColor('#333333'))
+                )
 
             summary_table = Table(
-                table_content, colWidths=[220, 220, 240], style=t_style
+                table_content, colWidths=[220, 220, 240], style=TableStyle(t_style_commands)
             )
             story_batch.append(summary_table)
 
