@@ -115,6 +115,7 @@ if uploaded_file is not None:
       )
       df_current = df_current_all.loc[mask]
     else:
+      start_date, end_date = None, None
       df_current = df_current_all
 
 
@@ -166,7 +167,7 @@ if uploaded_file is not None:
           df.columns[1],
       )
 
-      # --- SAFE NUMERIC CONVERSION TO PREVENT TypeError ---
+      # --- SAFE NUMERIC CONVERSION ---
       df_selected = df_selected.copy()
       df_selected[current_col] = pd.to_numeric(
           df_selected[current_col], errors='coerce'
@@ -322,8 +323,8 @@ if uploaded_file is not None:
     st.markdown('---')
 
 
-    # PDF Generator Function (Respects selected date range view)
-    def generate_pdf_report(target_df, m_id):
+    # PDF Generator Function taking explicit target_df (which is df_current)
+    def generate_pdf_report(target_df, m_id, s_date, e_date):
       d_sel, d_id, m_no, cap, l_series, c_col, t_data = analyze_dt(
           target_df, m_id
       )
@@ -402,7 +403,7 @@ if uploaded_file is not None:
           Paragraph(
               f'<b>Meter No:</b> {m_no} &nbsp;&nbsp;|&nbsp;&nbsp; <b>DT'
               f' ID:</b> {d_id} &nbsp;&nbsp;|&nbsp;&nbsp; <b>Capacity:</b>'
-              f' {cap} kVA <br/><b>Time Slot:</b> {start_date} to {end_date}',
+              f' {cap} kVA <br/><b>Time Slot:</b> {s_date} to {e_date}',
               meta_style,
           )
       )
@@ -470,7 +471,7 @@ if uploaded_file is not None:
 
     with col_b1:
       st.markdown('### 📄 Current DT Report (Filtered Range)')
-      single_pdf = generate_pdf_report(df_current, selected_meter)
+      single_pdf = generate_pdf_report(df_current, selected_meter, start_date, end_date)
       st.download_button(
           label='📥 Download Filtered DT Graph PDF',
           data=single_pdf,
