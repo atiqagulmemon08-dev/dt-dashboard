@@ -285,6 +285,8 @@ if uploaded_file is not None:
             fontsize=9,
             fontweight='bold',
         )
+      # Explicitly set xlim for UI display as well
+      ax.set_xlim(pd.to_datetime(start_date), pd.to_datetime(end_date) + pd.Timedelta(days=1))
     else:
       ax.text(
           0.5,
@@ -323,7 +325,7 @@ if uploaded_file is not None:
     st.markdown('---')
 
 
-    # PDF Generator Function taking explicit target_df (which is df_current)
+    # PDF Generator Function taking explicit target_df and explicit date constraints
     def generate_pdf_report(target_df, m_id, s_date, e_date):
       d_sel, d_id, m_no, cap, l_series, c_col, t_data = analyze_dt(
           target_df, m_id
@@ -346,6 +348,8 @@ if uploaded_file is not None:
             linewidth=1.2,
             label='80% Loading',
         )
+        # STRICTLY CONSTRAINT AXIS TO SELECTED DATES
+        ax_pdf.set_xlim(pd.to_datetime(s_date), pd.to_datetime(e_date) + pd.Timedelta(days=1))
 
       ax_pdf.set_title(
           'DT Loading Status as per IEC OL Criteria (Filtered Range)',
