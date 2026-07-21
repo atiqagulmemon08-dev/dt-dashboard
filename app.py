@@ -78,16 +78,14 @@ if uploaded_file is not None:
     meter_col = string_cols[0] if len(string_cols) > 0 else df.columns[0]
 
   if time_col is None:
-    st.error(
-        'Could not find a timestamp or date column in your dataset. Please'
-        ' ensure your CSV has a date/time column.'
-    )
+    st.error('Could not find a timestamp or date column in your dataset.')
   else:
     st.sidebar.header('Selection Filter')
     unique_meters = df[meter_col].dropna().unique()
     selected_meter = st.sidebar.selectbox(
         'Select Meter No / DT ID:', unique_meters
     )
+
 
     # Helper function to compute analysis for any given meter dataframe subset
     def analyze_dt(df_selected, m_id):
@@ -185,6 +183,7 @@ if uploaded_file is not None:
           current_col,
           table_data,
       )
+
 
     # Filter for current view
     df_current = df[df[meter_col] == selected_meter].sort_values(time_col)
@@ -289,18 +288,19 @@ if uploaded_file is not None:
     st.markdown('---')
 
 
-    # PDF Generator Function for a single DT report
+    # PDF Generator Function (Chart + Clean ReportLab Table below)
     def generate_pdf_report(target_df, m_id):
       d_sel, d_id, m_no, cap, l_series, c_col, t_data = analyze_dt(
           target_df, m_id
       )
 
-      fig_pdf, ax_pdf = plt.subplots(figsize=(10, 5), dpi=200)
+      # 1. Clean Matplotlib Figure (Chart Only)
+      fig_pdf, ax_pdf = plt.subplots(figsize=(10, 4.2), dpi=200)
       ax_pdf.plot(
           d_sel[time_col],
           d_sel[c_col],
           color='#1f77b4',
-          linewidth=0.8,
+          linewidth=1.0,
           label='Avg Loading',
       )
       avg_l_val = l_series.mean()
@@ -312,57 +312,25 @@ if uploaded_file is not None:
           label='80% Loading',
       )
 
-      t_str = f'DT ID: {d_id}  |  Meter No: {m_no}  |  Capacity: {cap}'
-      fig_pdf.suptitle(t_str, fontsize=10, fontweight='bold', y=0.96)
       ax_pdf.set_title(
           'DT Loading Status as per IEC OL Criteria',
-          fontsize=9,
+          fontsize=10,
           fontweight='bold',
-          pad=12,
+          pad=10,
       )
-      ax_pdf.set_xlabel('Timestamp', fontsize=8, fontweight='bold')
-      ax_pdf.set_ylabel('Current (Amperes)', fontsize=8, fontweight='bold')
+      ax_pdf.set_xlabel('Timestamp', fontsize=9, fontweight='bold')
+      ax_pdf.set_ylabel('Current (Amperes)', fontsize=9, fontweight='bold')
       ax_pdf.grid(True, linestyle='--', alpha=0.5)
       ax_pdf.legend(loc='upper left', fontsize=8)
 
-      col_lbls = [
-          'Loading Criteria',
-          'Violation Instances',
-          'Permissible Duration (min)',
-      ]
-      t_txt = [[row[0], str(row[1]), str(row[2])] for row in t_data]
-
-      tbl = ax_pdf.table(
-          cellText=t_txt,
-          colLabels=col_lbls,
-          loc='upper right',
-          bbox=[0.72, 1.01, 0.28, 0.28],
-      )
-      tbl.auto_set_font_size(False)
-      tbl.set_fontsize(7)
-
-      for key, cell in tbl.get_celld().items():
-        row_idx = key[0]
-        cell.set_edgecolor('#b0b0b0')
-        if row_idx == 0:
-          cell.set_facecolor('#1f77b4')
-          cell.set_text_props(color='white', fontweight='bold')
-        else:
-          inst_cnt = t_data[row_idx - 1][1]
-          if inst_cnt > 0:
-            cell.set_facecolor('#fdf2f2')
-            cell.set_text_props(color='darkred', fontweight='bold')
-          else:
-            cell.set_facecolor('#ffffff')
-            cell.set_text_props(color='#333333', fontweight='normal')
-
-      plt.subplots_adjust(top=0.82, bottom=0.12, left=0.08, right=0.92)
+      plt.subplots_adjust(top=0.90, bottom=0.15, left=0.08, right=0.95)
 
       img_buf = io.BytesIO()
       plt.savefig(img_buf, format='png', bbox_inches='tight')
       plt.close(fig_pdf)
       img_buf.seek(0)
 
+      # 2. ReportLab PDF Generation
       pdf_buf = io.BytesIO()
       doc = SimpleDocTemplate(
           pdf_buf,
@@ -378,10 +346,18 @@ if uploaded_file is not None:
       title_style = ParagraphStyle(
           'ReportTitle',
           parent=styles['Heading1'],
-          fontSize=16,
+          fontSize=15,
           textColor=colors.HexColor('#1f77b4'),
-          spaceAfter=10,
+          spaceAfter=6,
           alignment=1,
+      )
+
+      meta_style = ParagraphStyle(
+          'ReportMeta',
+          parent=styles['Normal'],
+          fontSize=10,
+          alignment=1,
+          spaceAfter=12,
       )
 
       story.append(
@@ -394,12 +370,44 @@ if uploaded_file is not None:
               f'<b>Meter No:</b> {m_no} &nbsp;&nbsp;|&nbsp;&nbsp; <b>DT'
               f' ID:</b> {d_id} &nbsp;&nbsp;|&nbsp;&nbsp; <b>Capacity:</b>'
               f' {cap} kVA',
-              styles['Normal'],
+              meta_style,
           )
       )
-      story.append(Spacer(1, 15))
-      story.append(Image(img_buf, width=700, height=330))
+
+      # Add Image of Chart
+      story.append(Image(img_buf, width=680, height=285))
       story.append(Spacer(1, 10))
+
+      # Add IEC Summary Table using ReportLab Table
+      table_content = [
+          [
+              'Loading Criteria',
+              'Violation Instances',
+              'Permissible Duration (min)',
+          ]
+      ]
+      for row in t_data:
+        table_content.append([str(row[0]), str(row[1]), str(row[2])])
+
+      t_style = TableStyle([
+          ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1f77b4')),
+          ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+          ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+          ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+          ('FONTSIZE', (0, 0), (-1, 0), 9),
+          ('BOTTOMPADDING', (0, 0), (-1, 0), 6),
+          ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#f9f9f9')),
+          ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#d0d0d0')),
+          ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+          ('FONTSIZE', (0, 1), (-1, -1), 8),
+          ('TOPPADDING', (0, 1), (-1, -1), 4),
+          ('BOTTOMPADDING', (0, 1), (-1, -1), 4),
+      ])
+
+      summary_table = Table(
+          table_content, colWidths=[220, 220, 240], style=t_style
+      )
+      story.append(summary_table)
 
       doc.build(story)
       pdf_buf.seek(0)
@@ -424,8 +432,7 @@ if uploaded_file is not None:
       st.markdown('### 📚 Batch Report (All DTs)')
       if st.button('⚙️ Generate All DTs PDF Report', use_container_width=True):
         with st.spinner(
-            'Generating batch PDF report for all DTs in the dataset... This may'
-            ' take a moment.'
+            'Generating batch PDF report for all DTs in the dataset...'
         ):
           batch_pdf_buf = io.BytesIO()
           doc_batch = SimpleDocTemplate(
@@ -442,10 +449,17 @@ if uploaded_file is not None:
           title_style = ParagraphStyle(
               'ReportTitle',
               parent=styles['Heading1'],
-              fontSize=16,
+              fontSize=15,
               textColor=colors.HexColor('#1f77b4'),
-              spaceAfter=10,
+              spaceAfter=6,
               alignment=1,
+          )
+          meta_style = ParagraphStyle(
+              'ReportMeta',
+              parent=styles['Normal'],
+              fontSize=10,
+              alignment=1,
+              spaceAfter=12,
           )
 
           for idx, m in enumerate(unique_meters):
@@ -457,12 +471,12 @@ if uploaded_file is not None:
                 d_sub, m
             )
 
-            fig_b, ax_b = plt.subplots(figsize=(10, 4.5), dpi=200)
+            fig_b, ax_b = plt.subplots(figsize=(10, 4.2), dpi=200)
             ax_b.plot(
                 d_sel[time_col],
                 d_sel[c_col],
                 color='#1f77b4',
-                linewidth=0.8,
+                linewidth=1.0,
                 label='Avg Loading',
             )
             avg_l_val = l_series.mean()
@@ -474,51 +488,18 @@ if uploaded_file is not None:
                 label='80% Loading',
             )
 
-            t_str = f'DT ID: {d_id}  |  Meter No: {m_no}  |  Capacity: {cap}'
-            fig_b.suptitle(t_str, fontsize=10, fontweight='bold', y=0.96)
             ax_b.set_title(
                 'DT Loading Status as per IEC OL Criteria',
-                fontsize=9,
+                fontsize=10,
                 fontweight='bold',
-                pad=12,
+                pad=10,
             )
-            ax_b.set_xlabel('Timestamp', fontsize=8, fontweight='bold')
-            ax_b.set_ylabel('Current (Amperes)', fontsize=8, fontweight='bold')
+            ax_b.set_xlabel('Timestamp', fontsize=9, fontweight='bold')
+            ax_b.set_ylabel('Current (Amperes)', fontsize=9, fontweight='bold')
             ax_b.grid(True, linestyle='--', alpha=0.5)
             ax_b.legend(loc='upper left', fontsize=8)
 
-            col_lbls = [
-                'Loading Criteria',
-                'Violation Instances',
-                'Permissible Duration (min)',
-            ]
-            t_txt = [[row[0], str(row[1]), str(row[2])] for row in t_data]
-
-            tbl = ax_b.table(
-                cellText=t_txt,
-                colLabels=col_lbls,
-                loc='upper right',
-                bbox=[0.72, 1.01, 0.28, 0.28],
-            )
-            tbl.auto_set_font_size(False)
-            tbl.set_fontsize(7)
-
-            for key, cell in tbl.get_celld().items():
-              row_idx = key[0]
-              cell.set_edgecolor('#b0b0b0')
-              if row_idx == 0:
-                cell.set_facecolor('#1f77b4')
-                cell.set_text_props(color='white', fontweight='bold')
-              else:
-                inst_cnt = t_data[row_idx - 1][1]
-                if inst_cnt > 0:
-                  cell.set_facecolor('#fdf2f2')
-                  cell.set_text_props(color='darkred', fontweight='bold')
-                else:
-                  cell.set_facecolor('#ffffff')
-                  cell.set_text_props(color='#333333', fontweight='normal')
-
-            plt.subplots_adjust(top=0.82, bottom=0.12, left=0.08, right=0.92)
+            plt.subplots_adjust(top=0.90, bottom=0.15, left=0.08, right=0.95)
 
             img_buf = io.BytesIO()
             plt.savefig(img_buf, format='png', bbox_inches='tight')
@@ -537,11 +518,41 @@ if uploaded_file is not None:
                     f'<b>Meter No:</b> {m_no} &nbsp;&nbsp;|&nbsp;&nbsp; <b>DT'
                     f' ID:</b> {d_id} &nbsp;&nbsp;|&nbsp;&nbsp; <b>Capacity:</b>'
                     f' {cap} kVA',
-                    styles['Normal'],
+                    meta_style,
                 )
             )
+            story_batch.append(Image(img_buf, width=680, height=285))
             story_batch.append(Spacer(1, 10))
-            story_batch.append(Image(img_buf, width=700, height=310))
+
+            table_content = [
+                [
+                    'Loading Criteria',
+                    'Violation Instances',
+                    'Permissible Duration (min)',
+                ]
+            ]
+            for row in t_data:
+              table_content.append([str(row[0]), str(row[1]), str(row[2])])
+
+            t_style = TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1f77b4')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, 0), 9),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 6),
+                ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#f9f9f9')),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#d0d0d0')),
+                ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+                ('FONTSIZE', (0, 1), (-1, -1), 8),
+                ('TOPPADDING', (0, 1), (-1, -1), 4),
+                ('BOTTOMPADDING', (0, 1), (-1, -1), 4),
+            ])
+
+            summary_table = Table(
+                table_content, colWidths=[220, 220, 240], style=t_style
+            )
+            story_batch.append(summary_table)
 
             if idx < len(unique_meters) - 1:
               story_batch.append(PageBreak())
@@ -561,7 +572,4 @@ if uploaded_file is not None:
             use_container_width=True,
         )
 else:
-  st.info(
-      '👆 Please upload your master CSV file using the file uploader above to'
-      ' begin.'
-  )
+  st.info('👆 Please upload your master CSV file using the file uploader above.')
