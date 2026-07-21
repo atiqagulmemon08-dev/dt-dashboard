@@ -285,7 +285,6 @@ if uploaded_file is not None:
             fontsize=9,
             fontweight='bold',
         )
-      # Explicitly set xlim for UI display as well
       ax.set_xlim(pd.to_datetime(start_date), pd.to_datetime(end_date) + pd.Timedelta(days=1))
     else:
       ax.text(
@@ -348,7 +347,6 @@ if uploaded_file is not None:
             linewidth=1.2,
             label='80% Loading',
         )
-        # STRICTLY CONSTRAINT AXIS TO SELECTED DATES
         ax_pdf.set_xlim(pd.to_datetime(s_date), pd.to_datetime(e_date) + pd.Timedelta(days=1))
 
       ax_pdf.set_title(
@@ -485,10 +483,10 @@ if uploaded_file is not None:
       )
 
     with col_b2:
-      st.markdown('### 📚 Batch Report (All DTs - Full Data)')
+      st.markdown('### 📚 Batch Report (All DTs - Filtered Range)')
       if st.button('⚙️ Generate All DTs PDF Report', use_container_width=True):
         with st.spinner(
-            'Generating batch PDF report for all DTs in the dataset...'
+            'Generating batch PDF report for all DTs restricted to selected date range...'
         ):
           batch_pdf_buf = io.BytesIO()
           doc_batch = SimpleDocTemplate(
@@ -519,7 +517,13 @@ if uploaded_file is not None:
           )
 
           for idx, m in enumerate(unique_meters):
-            d_sub = df[df[meter_col] == m].sort_values(time_col)
+            # Filter each DT's dataset by the selected date range
+            d_sub_all = df[df[meter_col] == m].sort_values(time_col)
+            mask_batch = (d_sub_all[time_col].dt.date >= start_date) & (
+                d_sub_all[time_col].dt.date <= end_date
+            )
+            d_sub = d_sub_all.loc[mask_batch]
+
             if len(d_sub) == 0:
               continue
 
@@ -543,9 +547,10 @@ if uploaded_file is not None:
                 linewidth=1.2,
                 label='80% Loading',
             )
+            ax_b.set_xlim(pd.to_datetime(start_date), pd.to_datetime(end_date) + pd.Timedelta(days=1))
 
             ax_b.set_title(
-                'DT Loading Status as per IEC OL Criteria',
+                'DT Loading Status as per IEC OL Criteria (Filtered Range)',
                 fontsize=10,
                 fontweight='bold',
                 pad=10,
@@ -573,7 +578,7 @@ if uploaded_file is not None:
                 Paragraph(
                     f'<b>Meter No:</b> {m_no} &nbsp;&nbsp;|&nbsp;&nbsp; <b>DT'
                     f' ID:</b> {d_id} &nbsp;&nbsp;|&nbsp;&nbsp; <b>Capacity:</b>'
-                    f' {cap} kVA',
+                    f' {cap} kVA <br/><b>Time Slot:</b> {start_date} to {end_date}',
                     meta_style,
                 )
             )
@@ -637,13 +642,13 @@ if uploaded_file is not None:
           batch_pdf_buf.seek(0)
 
           st.session_state['batch_pdf_data'] = batch_pdf_buf.getvalue()
-          st.success('Batch PDF generated successfully!')
+          st.success('Batch PDF generated successfully for the selected date range!')
 
       if 'batch_pdf_data' in st.session_state:
         st.download_button(
-            label='📥 Download All DTs PDF Report',
+            label='📥 Download All DTs PDF Report (Filtered)',
             data=st.session_state['batch_pdf_data'],
-            file_name='All_DTs_Comprehensive_Report.pdf',
+            file_name=f'All_DTs_Report_{start_date}_to_{end_date}.pdf',
             mime='application/pdf',
             use_container_width=True,
         )
