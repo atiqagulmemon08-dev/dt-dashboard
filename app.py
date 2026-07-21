@@ -739,4 +739,4 @@ if uploaded_file is not None:
           use_container_width=True,
       )
 else:
-  st.info('👆 Please upload your master CSV file using the file uploader above.')
+  st.info('Please upload your master CSV file using the file uploader above.')
