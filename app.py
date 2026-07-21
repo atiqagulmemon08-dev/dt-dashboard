@@ -80,36 +80,70 @@ if uploaded_file is not None:
   if time_col is None:
     st.error('Could not find a timestamp or date column in your dataset.')
   else:
+    # --- RESET BUTTON & SESSION STATE INITIALIZATION ---
     st.sidebar.header('Selection Filters')
-    unique_meters = df[meter_col].dropna().unique()
-    selected_meter = st.sidebar.selectbox(
-        'Select Meter No / DT ID:', unique_meters
-    )
+    
+    if st.sidebar.button('🔄 Reset All Selections', use_container_width=True):
+      for key in list(st.session_state.keys()):
+        del st.session_state[key]
+      st.rerun()
 
-    # --- FILTER DATA FOR SELECTED METER FIRST ---
+    unique_meters = df[meter_col].dropna().unique()
+    
+    # Initialize session state for selected meter if not present
+    if 'selected_meter' not in st.session_state:
+      st.session_state['selected_meter'] = unique_meters[0]
+
+    selected_meter = st.sidebar.selectbox(
+        'Select Meter No / DT ID:',
+        unique_meters,
+        index=list(unique_meters).index(st.session_state['selected_meter'])
+        if st.session_state['selected_meter'] in unique_meters
+        else 0,
+        key='meter_selectbox_widget'
+    )
+    st.session_state['selected_meter'] = selected_meter
+
+    # --- FILTER DATA FOR SELECTED METER ---
     df_current_all = df[df[meter_col] == selected_meter].sort_values(time_col)
 
-    # --- DATE RANGE SELECTOR ---
+    # --- PERSISTENT DATE RANGE SELECTOR ---
     if not df_current_all.empty and df_current_all[time_col].notna().any():
       min_date = df_current_all[time_col].min().date()
       max_date = df_current_all[time_col].max().date()
 
       st.sidebar.markdown('---')
       st.sidebar.subheader('📅 Time Slot Filter')
+
+      # Initialize default date range in session state
+      if 'date_range' not in st.session_state:
+        st.session_state['date_range'] = (min_date, max_date)
+
+      # Ensure cached dates are within the valid bounds of the currently selected meter
+      curr_val = st.session_state['date_range']
+      if not isinstance(curr_val, tuple) or len(curr_val) != 2:
+        curr_val = (min_date, max_date)
+      
+      valid_start = max(min_date, curr_val[0])
+      valid_end = min(max_date, curr_val[1])
+      if valid_start > valid_end:
+        valid_start, valid_end = min_date, max_date
+
       selected_date_range = st.sidebar.date_input(
           'Select Date Range:',
-          value=(min_date, max_date),
+          value=(valid_start, valid_end),
           min_value=min_date,
           max_value=max_date,
+          key='date_input_widget'
       )
+      st.session_state['date_range'] = selected_date_range
 
-      # Handle single date selection vs range selection
       if isinstance(selected_date_range, tuple) and len(selected_date_range) == 2:
         start_date, end_date = selected_date_range
       else:
         start_date = end_date = selected_date_range
 
-      # Filter dataset by selected date range (inclusive of full days)
+      # Filter dataset by selected date range
       mask = (df_current_all[time_col].dt.date >= start_date) & (
           df_current_all[time_col].dt.date <= end_date
       )
@@ -324,7 +358,7 @@ if uploaded_file is not None:
     st.markdown('---')
 
 
-    # --- EXCEL ANALYSIS RESULTS GENERATOR (WITH ROBUST DATE FILTERING) ---
+    # --- EXCEL ANALYSIS RESULTS GENERATOR ---
     def generate_excel_analysis_report():
       excel_rows = []
       for m in unique_meters:
@@ -367,7 +401,7 @@ if uploaded_file is not None:
       return output.getvalue()
 
 
-    # PDF Generator Function taking explicit target_df and explicit date constraints
+    # PDF Generator Function
     def generate_pdf_report(target_df, m_id, s_date, e_date):
       d_sel, d_id, m_no, cap, l_series, c_col, t_data = analyze_dt(
           target_df, m_id
