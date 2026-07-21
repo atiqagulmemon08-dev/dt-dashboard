@@ -119,7 +119,6 @@ if uploaded_file is not None:
       if 'date_range' not in st.session_state:
         st.session_state['date_range'] = (min_date, max_date)
 
-      # Ensure cached dates are within the valid bounds of the currently selected meter
       curr_val = st.session_state['date_range']
       if not isinstance(curr_val, tuple) or len(curr_val) != 2:
         curr_val = (min_date, max_date)
@@ -358,7 +357,7 @@ if uploaded_file is not None:
     st.markdown('---')
 
 
-    # --- EXCEL ANALYSIS RESULTS GENERATOR ---
+    # --- EXCEL ANALYSIS RESULTS GENERATOR (WITH START & END DATES) ---
     def generate_excel_analysis_report():
       excel_rows = []
       for m in unique_meters:
@@ -373,7 +372,11 @@ if uploaded_file is not None:
 
         _, _, m_no, _, _, _, t_data = analyze_dt(d_sub, m)
         
-        row_dict = {'Meter_No': m_no}
+        row_dict = {
+            'Meter_No': m_no,
+            'Start_Date': str(start_date) if start_date else 'N/A',
+            'End_Date': str(end_date) if end_date else 'N/A'
+        }
         inst_80 = t_data[0][1]
         inst_90 = t_data[1][1]
         inst_100 = t_data[2][1]
