@@ -22,8 +22,8 @@ st.set_page_config(
 st.title('⚡ Distribution Transformer (DT) Overloading Dashboard')
 st.markdown(
     'Upload your master dataset containing multiple DTs to analyze IEC'
-    ' overloading criteria, visualize graphs interactively, and export'
-    ' professional PDF reports.'
+    ' overloading criteria, visualize graphs interactively, select custom'
+    ' time slots, and export professional PDF reports.'
 )
 
 uploaded_file = st.file_uploader(
@@ -80,11 +80,42 @@ if uploaded_file is not None:
   if time_col is None:
     st.error('Could not find a timestamp or date column in your dataset.')
   else:
-    st.sidebar.header('Selection Filter')
+    st.sidebar.header('Selection Filters')
     unique_meters = df[meter_col].dropna().unique()
     selected_meter = st.sidebar.selectbox(
         'Select Meter No / DT ID:', unique_meters
     )
+
+    # --- FILTER DATA FOR SELECTED METER FIRST ---
+    df_current_all = df[df[meter_col] == selected_meter].sort_values(time_col)
+
+    # --- DATE RANGE SELECTOR ---
+    if not df_current_all.empty and df_current_all[time_col].notna().any():
+      min_date = df_current_all[time_col].min().date()
+      max_date = df_current_all[time_col].max().date()
+
+      st.sidebar.markdown('---')
+      st.sidebar.subheader('📅 Time Slot Filter')
+      selected_date_range = st.sidebar.date_input(
+          'Select Date Range:',
+          value=(min_date, max_date),
+          min_value=min_date,
+          max_value=max_date,
+      )
+
+      # Handle single date selection vs range selection
+      if isinstance(selected_date_range, tuple) and len(selected_date_range) == 2:
+        start_date, end_date = selected_date_range
+      else:
+        start_date = end_date = selected_date_range
+
+      # Filter dataset by selected date range (inclusive of full days)
+      mask = (df_current_all[time_col].dt.date >= start_date) & (
+          df_current_all[time_col].dt.date <= end_date
+      )
+      df_current = df_current_all.loc[mask]
+    else:
+      df_current = df_current_all
 
 
     # Helper function to compute analysis for any given meter dataframe subset
@@ -93,9 +124,10 @@ if uploaded_file is not None:
       meter_no = str(m_id)
       capacity = (
           str(df_selected['DTS (kVA)'].iloc[0])
-          if 'DTS (kVA)' in df_selected.columns
+          if 'DTS (kVA)' in df_selected.columns and len(df_selected) > 0
           else (
               'Capacity' in df_selected.columns
+              and len(df_selected) > 0
               and str(df_selected['Capacity'].iloc[0])
               or 'N/A'
           )
@@ -173,6 +205,8 @@ if uploaded_file is not None:
       }
 
       def count_continuous_instances(series, threshold, min_rows):
+        if len(series) == 0:
+          return 0
         mask = series >= threshold
         block_id = (mask != mask.shift()).cumsum()
         valid_blocks = mask.groupby(block_id).agg(
@@ -200,8 +234,7 @@ if uploaded_file is not None:
       )
 
 
-    # Filter for current view
-    df_current = df[df[meter_col] == selected_meter].sort_values(time_col)
+    # Run analysis on filtered date subset for current view
     (
         df_selected,
         dt_id,
@@ -218,37 +251,49 @@ if uploaded_file is not None:
     col1, col2, col3 = st.columns(3)
     col1.metric('Selected Meter No', meter_no)
     col2.metric('DT Capacity', f'{capacity} kVA')
-    col3.metric('Total Overloading Instances', total_violations)
+    col3.metric('Filtered Overloading Instances', total_violations)
 
     st.markdown('---')
 
     # Generate interactive plot (UI display)
     fig, ax = plt.subplots(figsize=(14, 7), dpi=300)
-    ax.plot(
-        df_selected[time_col],
-        df_selected[current_col],
-        color='#1f77b4',
-        linewidth=0.8,
-        label='Avg Loading',
-    )
+    if not df_selected.empty:
+      ax.plot(
+          df_selected[time_col],
+          df_selected[current_col],
+          color='#1f77b4',
+          linewidth=0.8,
+          label='Avg Loading',
+      )
 
-    avg_limit_value = limit_series.mean()
-    ax.axhline(
-        y=avg_limit_value,
-        color='red',
-        linestyle='--',
-        linewidth=1.2,
-        label='80% Loading',
-    )
-
-    if len(df_selected) > 0:
-      ax.text(
-          df_selected[time_col].iloc[int(len(df_selected) * 0.70)],
-          avg_limit_value + 15,
-          '80% Loading',
+      avg_limit_value = limit_series.mean()
+      ax.axhline(
+          y=avg_limit_value,
           color='red',
-          fontsize=9,
-          fontweight='bold',
+          linestyle='--',
+          linewidth=1.2,
+          label='80% Loading',
+      )
+
+      if len(df_selected) > 0:
+        ax.text(
+            df_selected[time_col].iloc[int(len(df_selected) * 0.70)],
+            avg_limit_value + 15,
+            '80% Loading',
+            color='red',
+            fontsize=9,
+            fontweight='bold',
+        )
+    else:
+      ax.text(
+          0.5,
+          0.5,
+          'No data available for the selected date range',
+          horizontalalignment='center',
+          verticalalignment='center',
+          transform=ax.transAxes,
+          fontsize=12,
+          color='gray',
       )
 
     title_str = (
@@ -256,7 +301,7 @@ if uploaded_file is not None:
     )
     fig.suptitle(title_str, fontsize=11, fontweight='bold', y=0.96)
     ax.set_title(
-        'DT Loading Status as per IEC OL Criteria',
+        'DT Loading Status as per IEC OL Criteria (Filtered Range)',
         fontsize=10,
         fontweight='bold',
         pad=15,
@@ -271,37 +316,38 @@ if uploaded_file is not None:
     plt.subplots_adjust(top=0.88, bottom=0.1, left=0.08, right=0.95)
     st.pyplot(fig)
 
-    with st.expander('View Raw Data Records for Selected DT'):
+    with st.expander('View Filtered Raw Data Records for Selected DT'):
       st.dataframe(df_selected)
 
     st.markdown('---')
 
 
-    # PDF Generator Function
+    # PDF Generator Function (Respects selected date range view)
     def generate_pdf_report(target_df, m_id):
       d_sel, d_id, m_no, cap, l_series, c_col, t_data = analyze_dt(
           target_df, m_id
       )
 
       fig_pdf, ax_pdf = plt.subplots(figsize=(10, 4.2), dpi=200)
-      ax_pdf.plot(
-          d_sel[time_col],
-          d_sel[c_col],
-          color='#1f77b4',
-          linewidth=1.0,
-          label='Avg Loading',
-      )
-      avg_l_val = l_series.mean()
-      ax_pdf.axhline(
-          y=avg_l_val,
-          color='red',
-          linestyle='--',
-          linewidth=1.2,
-          label='80% Loading',
-      )
+      if not d_sel.empty:
+        ax_pdf.plot(
+            d_sel[time_col],
+            d_sel[c_col],
+            color='#1f77b4',
+            linewidth=1.0,
+            label='Avg Loading',
+        )
+        avg_l_val = l_series.mean()
+        ax_pdf.axhline(
+            y=avg_l_val,
+            color='red',
+            linestyle='--',
+            linewidth=1.2,
+            label='80% Loading',
+        )
 
       ax_pdf.set_title(
-          'DT Loading Status as per IEC OL Criteria',
+          'DT Loading Status as per IEC OL Criteria (Filtered Range)',
           fontsize=10,
           fontweight='bold',
           pad=10,
@@ -356,7 +402,7 @@ if uploaded_file is not None:
           Paragraph(
               f'<b>Meter No:</b> {m_no} &nbsp;&nbsp;|&nbsp;&nbsp; <b>DT'
               f' ID:</b> {d_id} &nbsp;&nbsp;|&nbsp;&nbsp; <b>Capacity:</b>'
-              f' {cap} kVA',
+              f' {cap} kVA <br/><b>Time Slot:</b> {start_date} to {end_date}',
               meta_style,
           )
       )
@@ -423,18 +469,18 @@ if uploaded_file is not None:
     col_b1, col_b2 = st.columns(2)
 
     with col_b1:
-      st.markdown('### 📄 Current DT Report')
+      st.markdown('### 📄 Current DT Report (Filtered Range)')
       single_pdf = generate_pdf_report(df_current, selected_meter)
       st.download_button(
-          label='📥 Download Current DT Graph PDF',
+          label='📥 Download Filtered DT Graph PDF',
           data=single_pdf,
-          file_name=f'DT_Report_Meter_{selected_meter}.pdf',
+          file_name=f'DT_Report_Meter_{selected_meter}_{start_date}_to_{end_date}.pdf',
           mime='application/pdf',
           use_container_width=True,
       )
 
     with col_b2:
-      st.markdown('### 📚 Batch Report (All DTs)')
+      st.markdown('### 📚 Batch Report (All DTs - Full Data)')
       if st.button('⚙️ Generate All DTs PDF Report', use_container_width=True):
         with st.spinner(
             'Generating batch PDF report for all DTs in the dataset...'
