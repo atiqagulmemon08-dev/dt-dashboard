@@ -50,7 +50,7 @@ if uploaded_file is not None:
   time_col = next((col for col in possible_time_cols if col in df.columns), None)
 
   if time_col:
-    df[time_col] = pd.to_datetime(df[time_col])
+    df[time_col] = pd.to_datetime(df[time_col], errors='coerce')
   else:
     for col in df.columns:
       if 'date' in col.lower() or 'time' in col.lower():
@@ -125,13 +125,6 @@ if uploaded_file is not None:
           None,
       )
 
-      if limit_col and limit_col in df_selected.columns:
-        limit_series = df_selected[limit_col]
-      elif lt_amps_col:
-        limit_series = df_selected[lt_amps_col] * 0.80
-      else:
-        limit_series = df_selected['Avg Current'] * 0.80
-
       current_col = next(
           (
               col
@@ -141,10 +134,32 @@ if uploaded_file is not None:
           df.columns[1],
       )
 
-      if lt_amps_col:
+      # --- SAFE NUMERIC CONVERSION TO PREVENT TypeError ---
+      df_selected = df_selected.copy()
+      df_selected[current_col] = pd.to_numeric(
+          df_selected[current_col], errors='coerce'
+      ).fillna(0)
+
+      if lt_amps_col and lt_amps_col in df_selected.columns:
+        df_selected[lt_amps_col] = pd.to_numeric(
+            df_selected[lt_amps_col], errors='coerce'
+        )
+
+      if limit_col and limit_col in df_selected.columns:
+        limit_series = pd.to_numeric(
+            df_selected[limit_col], errors='coerce'
+        ).fillna(0)
+      elif lt_amps_col and lt_amps_col in df_selected.columns:
+        limit_series = df_selected[lt_amps_col].fillna(0) * 0.80
+      else:
+        limit_series = df_selected[current_col] * 0.80
+
+      if lt_amps_col and lt_amps_col in df_selected.columns:
+        valid_lt = df_selected[lt_amps_col].replace(0, pd.NA)
         df_selected['Loading_Pct'] = (
-            df_selected[current_col] / df_selected[lt_amps_col]
+            df_selected[current_col] / valid_lt
         ) * 100
+        df_selected['Loading_Pct'] = df_selected['Loading_Pct'].fillna(0)
       else:
         df_selected['Loading_Pct'] = 0.0
 
@@ -226,14 +241,15 @@ if uploaded_file is not None:
         label='80% Loading',
     )
 
-    ax.text(
-        df_selected[time_col].iloc[int(len(df_selected) * 0.70)],
-        avg_limit_value + 15,
-        '80% Loading',
-        color='red',
-        fontsize=9,
-        fontweight='bold',
-    )
+    if len(df_selected) > 0:
+      ax.text(
+          df_selected[time_col].iloc[int(len(df_selected) * 0.70)],
+          avg_limit_value + 15,
+          '80% Loading',
+          color='red',
+          fontsize=9,
+          fontweight='bold',
+      )
 
     title_str = (
         f'DT ID: {dt_id}  |  Meter No: {meter_no}  |  Capacity: {capacity}'
@@ -261,13 +277,12 @@ if uploaded_file is not None:
     st.markdown('---')
 
 
-    # PDF Generator Function (Chart + Clean ReportLab Table below with conditional row highlighting)
+    # PDF Generator Function
     def generate_pdf_report(target_df, m_id):
       d_sel, d_id, m_no, cap, l_series, c_col, t_data = analyze_dt(
           target_df, m_id
       )
 
-      # 1. Clean Matplotlib Figure (Chart Only)
       fig_pdf, ax_pdf = plt.subplots(figsize=(10, 4.2), dpi=200)
       ax_pdf.plot(
           d_sel[time_col],
@@ -303,7 +318,6 @@ if uploaded_file is not None:
       plt.close(fig_pdf)
       img_buf.seek(0)
 
-      # 2. ReportLab PDF Generation
       pdf_buf = io.BytesIO()
       doc = SimpleDocTemplate(
           pdf_buf,
@@ -347,11 +361,9 @@ if uploaded_file is not None:
           )
       )
 
-      # Add Image of Chart
       story.append(Image(img_buf, width=680, height=285))
       story.append(Spacer(1, 10))
 
-      # Add IEC Summary Table using ReportLab Table
       table_content = [
           [
               'Loading Criteria',
@@ -362,7 +374,6 @@ if uploaded_file is not None:
       for row in t_data:
         table_content.append([str(row[0]), str(row[1]), str(row[2])])
 
-      # Base table style
       t_style_commands = [
           ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1f77b4')),
           ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
@@ -377,10 +388,9 @@ if uploaded_file is not None:
           ('BOTTOMPADDING', (0, 1), (-1, -1), 4),
       ]
 
-      # Dynamically apply conditional background/text color for rows with violations > 0
       for idx, row in enumerate(t_data):
         instances = row[1]
-        row_idx = idx + 1  # 0 is header
+        row_idx = idx + 1
         if instances > 0:
           t_style_commands.append(
               ('BACKGROUND', (0, row_idx), (-1, row_idx), colors.HexColor('#fdf2f2'))
