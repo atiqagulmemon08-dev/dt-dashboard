@@ -24,22 +24,30 @@ if uploaded_file is not None:
 
   df = load_data(uploaded_file)
 
-  if 'Date + Time' in df.columns:
-    df['Date + Time'] = pd.to_datetime(df['Date + Time'])
+  # Automatically find the time/date column regardless of spacing or naming variations
+  possible_time_cols = ['Date + Time', 'Timestamp', 'Date_Time', 'DateTime', 'Date', 'Time']
+  time_col = next((col for col in possible_time_cols if col in df.columns), None)
 
-  meter_col = (
-      'Meter No'
-      if 'Meter No' in df.columns
-      else ('Meter_No' if 'Meter_No' in df.columns else None)
-  )
-  dt_col = (
-      'DTS (kVA)'
-      if 'DTS (kVA)' in df.columns
-      else ('DT ID' if 'DT ID' in df.columns else meter_col)
-  )
+  if time_col:
+    df[time_col] = pd.to_datetime(df[time_col])
+  else:
+    # Fallback: find any column containing 'date' or 'time'
+    for col in df.columns:
+      if 'date' in col.lower() or 'time' in col.lower():
+        time_col = col
+        df[time_col] = pd.to_datetime(df[time_col], errors='coerce')
+        break
 
+  # Automatically find meter/DT ID columns
+  meter_col = next((col for col in ['Meter No', 'Meter_No', 'MeterNo', 'DT ID', 'DT_ID'] if col in df.columns), None)
+  
   if meter_col is None:
-    st.error("Could not find a 'Meter No' or 'Meter_No' column in your dataset.")
+    # Pick the first string or categorical column as a fallback selector
+    string_cols = df.select_dtypes(include=['object']).columns
+    meter_col = string_cols[0] if len(string_cols) > 0 else df.columns[0]
+
+  if time_col is None:
+    st.error("Could not find a timestamp or date column in your dataset. Please ensure your CSV has a date/time column.")
   else:
     st.sidebar.header('Selection Filter')
     unique_meters = df[meter_col].dropna().unique()
@@ -47,30 +55,33 @@ if uploaded_file is not None:
         'Select Meter No / DT ID:', unique_meters
     )
 
-    df_selected = df[df[meter_col] == selected_meter].sort_values(
-        'Date + Time'
-    )
+    df_selected = df[df[meter_col] == selected_meter].sort_values(time_col)
 
-    dt_id = (
-        str(df_selected[dt_col].iloc[0])
-        if dt_col in df_selected.columns
-        else 'N/A'
-    )
+    dt_id = str(selected_meter)
     meter_no = str(selected_meter)
     capacity = (
         str(df_selected['DTS (kVA)'].iloc[0])
         if 'DTS (kVA)' in df_selected.columns
-        else 'N/A'
+        else ('Capacity' in df_selected.columns and str(df_selected['Capacity'].iloc[0]) or 'N/A')
     )
 
-    if 'Limit(80% of LT Amps Rated)' in df_selected.columns:
-      limit_series = df_selected['Limit(80% of LT Amps Rated)']
-    else:
-      limit_series = df_selected['LT Amps rated'] * 0.80
+    # Safe lookup for LT Amps rated
+    lt_amps_col = next((col for col in ['LT Amps rated', 'LT_Amps_Rated', 'Rated Current'] if col in df.columns), None)
+    limit_col = next((col for col in ['Limit(80% of LT Amps Rated)', 'Limit_80_Pct'] if col in df.columns), None)
 
-    df_selected['Loading_Pct'] = (
-        df_selected['Avg Current'] / df_selected['LT Amps rated']
-    ) * 100
+    if limit_col and limit_col in df_selected.columns:
+      limit_series = df_selected[limit_col]
+    elif lt_amps_col:
+      limit_series = df_selected[lt_amps_col] * 0.80
+    else:
+      limit_series = df_selected['Avg Current'] * 0.80  # fallback
+
+    current_col = next((col for col in ['Avg Current', 'Current', 'Avg_Current'] if col in df.columns), df.columns[1])
+    
+    if lt_amps_col:
+      df_selected['Loading_Pct'] = (df_selected[current_col] / df_selected[lt_amps_col]) * 100
+    else:
+      df_selected['Loading_Pct'] = 0.0
 
     criteria = {
         '>80%': {'threshold': 80.0, 'min_rows': 16, 'perm_dur': 480},
@@ -106,8 +117,8 @@ if uploaded_file is not None:
 
     fig, ax = plt.subplots(figsize=(14, 7), dpi=300)
     ax.plot(
-        df_selected['Date + Time'],
-        df_selected['Avg Current'],
+        df_selected[time_col],
+        df_selected[current_col],
         color='#1f77b4',
         linewidth=0.8,
         label='Avg Loading',
@@ -123,7 +134,7 @@ if uploaded_file is not None:
     )
 
     ax.text(
-        df_selected['Date + Time'].iloc[int(len(df_selected) * 0.70)],
+        df_selected[time_col].iloc[int(len(df_selected) * 0.70)],
         avg_limit_value + 15,
         '80% Loading',
         color='red',
