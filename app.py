@@ -23,7 +23,7 @@ st.title('⚡ Distribution Transformer (DT) Overloading Dashboard')
 st.markdown(
     'Upload your master dataset containing multiple DTs to analyze IEC'
     ' overloading criteria, visualize graphs interactively, select custom'
-    ' time slots, and export professional PDF reports.'
+    ' time slots, and export professional PDF and Excel reports.'
 )
 
 uploaded_file = st.file_uploader(
@@ -324,6 +324,50 @@ if uploaded_file is not None:
     st.markdown('---')
 
 
+    # --- EXCEL ANALYSIS RESULTS GENERATOR ---
+    def generate_excel_analysis_report():
+      excel_rows = []
+      for m in unique_meters:
+        d_sub_all = df[df[meter_col] == m].sort_values(time_col)
+        if start_date and end_date:
+          mask_ex = (d_sub_all[time_col].dt.date >= start_date) & (
+              d_sub_all[time_col].dt.date <= end_date
+          )
+          d_sub = d_sub_all.loc[mask_ex]
+        else:
+          d_sub = d_sub_all
+
+        _, _, m_no, _, _, _, t_data = analyze_dt(d_sub, m)
+        
+        # t_data order: '>80%', '>90%', '>100%', '>110%', '>120%', '>130%'
+        row_dict = {'Meter_No': m_no}
+        inst_80 = t_data[0][1]
+        inst_90 = t_data[1][1]
+        inst_100 = t_data[2][1]
+        inst_110 = t_data[3][1]
+        inst_120 = t_data[4][1]
+        inst_130 = t_data[5][1]
+        total_ol = inst_80 + inst_90 + inst_100 + inst_110 + inst_120 + inst_130
+
+        row_dict['Above 80% for 480 min'] = inst_80
+        row_dict['Above 90% for 240 min'] = inst_90
+        row_dict['Above 100% for 120 min'] = inst_100
+        row_dict['Above 110% for 60 min'] = inst_110
+        row_dict['Above 120% for 30 min'] = inst_120
+        row_dict['Above 130% for 15 min'] = inst_130
+        row_dict['Total IEC OL Instances'] = total_ol
+
+        excel_rows.append(row_dict)
+
+      summary_df = pd.DataFrame(excel_rows)
+      
+      output = io.BytesIO()
+      with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        summary_df.to_excel(writer, index=False, sheet_name='IEC_Analysis_Results')
+      output.seek(0)
+      return output.getvalue()
+
+
     # PDF Generator Function taking explicit target_df and explicit date constraints
     def generate_pdf_report(target_df, m_id, s_date, e_date):
       d_sel, d_id, m_no, cap, l_series, c_col, t_data = analyze_dt(
@@ -468,14 +512,14 @@ if uploaded_file is not None:
       return pdf_buf
 
 
-    # Two Download Buttons in Columns
-    col_b1, col_b2 = st.columns(2)
+    # --- DASHBOARD ACTION BUTTONS ---
+    st.markdown('### 📥 Export Reports & Analysis')
+    col_b1, col_b2, col_b3 = st.columns(3)
 
     with col_b1:
-      st.markdown('### 📄 Current DT Report (Filtered Range)')
       single_pdf = generate_pdf_report(df_current, selected_meter, start_date, end_date)
       st.download_button(
-          label='📥 Download Filtered DT Graph PDF',
+          label='📄 Download Current DT PDF',
           data=single_pdf,
           file_name=f'DT_Report_Meter_{selected_meter}_{start_date}_to_{end_date}.pdf',
           mime='application/pdf',
@@ -483,11 +527,8 @@ if uploaded_file is not None:
       )
 
     with col_b2:
-      st.markdown('### 📚 Batch Report (All DTs - Filtered Range)')
       if st.button('⚙️ Generate All DTs PDF Report', use_container_width=True):
-        with st.spinner(
-            'Generating batch PDF report for all DTs restricted to selected date range...'
-        ):
+        with st.spinner('Generating batch PDF report restricted to selected date range...'):
           batch_pdf_buf = io.BytesIO()
           doc_batch = SimpleDocTemplate(
               batch_pdf_buf,
@@ -517,7 +558,6 @@ if uploaded_file is not None:
           )
 
           for idx, m in enumerate(unique_meters):
-            # Filter each DT's dataset by the selected date range
             d_sub_all = df[df[meter_col] == m].sort_values(time_col)
             mask_batch = (d_sub_all[time_col].dt.date >= start_date) & (
                 d_sub_all[time_col].dt.date <= end_date
@@ -640,17 +680,27 @@ if uploaded_file is not None:
 
           doc_batch.build(story_batch)
           batch_pdf_buf.seek(0)
-
           st.session_state['batch_pdf_data'] = batch_pdf_buf.getvalue()
-          st.success('Batch PDF generated successfully for the selected date range!')
+          st.success('Batch PDF generated successfully!')
 
       if 'batch_pdf_data' in st.session_state:
         st.download_button(
-            label='📥 Download All DTs PDF Report (Filtered)',
+            label='📥 Download All DTs PDF Report',
             data=st.session_state['batch_pdf_data'],
             file_name=f'All_DTs_Report_{start_date}_to_{end_date}.pdf',
             mime='application/pdf',
             use_container_width=True,
         )
+
+    with col_b3:
+      st.markdown('### 📊 Analysis Results')
+      excel_data = generate_excel_analysis_report()
+      st.download_button(
+          label='📥 Download Analysis Excel',
+          data=excel_data,
+          file_name=f'IEC_Analysis_Results_{start_date}_to_{end_date}.xlsx',
+          mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          use_container_width=True,
+      )
 else:
   st.info('👆 Please upload your master CSV file using the file uploader above.')
