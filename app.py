@@ -1,6 +1,7 @@
-import io
-import matplotlib.pyplot as plt
+io = __import__('io')
 import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import landscape, letter
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
@@ -13,6 +14,7 @@ from reportlab.platypus import (
     Table,
     TableStyle,
 )
+import matplotlib.pyplot as plt
 import streamlit as st
 
 st.set_page_config(
@@ -26,7 +28,6 @@ st.markdown(
     ' time slots, and export professional PDF and Excel reports.'
 )
 
-# UPDATED: accept_multiple_files=True allows uploading multiple files simultaneously
 uploaded_files = st.file_uploader(
     'Upload Master CSV File(s) (Multi-DT Data)', type=['csv'], accept_multiple_files=True
 )
@@ -95,7 +96,6 @@ if uploaded_files:
 
     unique_meters = df[meter_col].dropna().unique()
     
-    # Initialize session state for selected meter if not present
     if 'selected_meter' not in st.session_state:
       st.session_state['selected_meter'] = unique_meters[0]
 
@@ -109,7 +109,6 @@ if uploaded_files:
     )
     st.session_state['selected_meter'] = selected_meter
 
-    # --- FILTER DATA FOR SELECTED METER ---
     df_current_all = df[df[meter_col] == selected_meter].sort_values(time_col)
 
     # --- PERSISTENT DATE RANGE SELECTOR ---
@@ -120,7 +119,6 @@ if uploaded_files:
       st.sidebar.markdown('---')
       st.sidebar.subheader('📅 Time Slot Filter')
 
-      # Initialize default date range in session state
       if 'date_range' not in st.session_state:
         st.session_state['date_range'] = (min_date, max_date)
 
@@ -147,7 +145,6 @@ if uploaded_files:
       else:
         start_date = end_date = selected_date_range
 
-      # Filter dataset by selected date range
       mask = (df_current_all[time_col].dt.date >= start_date) & (
           df_current_all[time_col].dt.date <= end_date
       )
@@ -157,7 +154,6 @@ if uploaded_files:
       df_current = df_current_all
 
 
-    # Helper function to compute analysis for any given meter dataframe subset
     def analyze_dt(df_selected, m_id):
       dt_id = str(m_id)
       meter_no = str(m_id)
@@ -205,7 +201,6 @@ if uploaded_files:
           df.columns[1],
       )
 
-      # --- SAFE NUMERIC CONVERSION ---
       df_selected = df_selected.copy()
       df_selected[current_col] = pd.to_numeric(
           df_selected[current_col], errors='coerce'
@@ -273,7 +268,6 @@ if uploaded_files:
       )
 
 
-    # Run analysis on filtered date subset for current view
     (
         df_selected,
         dt_id,
@@ -286,7 +280,6 @@ if uploaded_files:
 
     total_violations = sum([row[1] for row in table_data])
 
-    # Display metrics summary cards on top
     col1, col2, col3 = st.columns(3)
     col1.metric('Selected Meter No', meter_no)
     col2.metric('DT Capacity', f'{capacity} kVA')
@@ -294,67 +287,48 @@ if uploaded_files:
 
     st.markdown('---')
 
-    # Generate interactive plot (UI display)
-    fig, ax = plt.subplots(figsize=(14, 7), dpi=300)
+    # --- INTERACTIVE PLOTLY GRAPH (WITH HOVER TOOLTIPS) ---
     if not df_selected.empty:
-      ax.plot(
-          df_selected[time_col],
-          df_selected[current_col],
-          color='#1f77b4',
-          linewidth=0.8,
-          label='Avg Loading',
-      )
-
       avg_limit_value = limit_series.mean()
-      ax.axhline(
-          y=avg_limit_value,
-          color='red',
-          linestyle='--',
-          linewidth=1.2,
-          label='80% Loading',
-      )
+      
+      fig = go.Figure()
+      
+      # Add main Avg Loading line with interactive hover details
+      fig.add_trace(go.Scatter(
+          x=df_selected[time_col],
+          y=df_selected[current_col],
+          mode='lines',
+          name='Avg Loading',
+          line=dict(color='#1f77b4', width=1.2),
+          hovertemplate='<b>Timestamp</b>: %{x}<br><b>Current</b>: %{y:.2f} A<extra></extra>'
+      ))
 
-      if len(df_selected) > 0:
-        ax.text(
-            df_selected[time_col].iloc[int(len(df_selected) * 0.70)],
-            avg_limit_value + 15,
-            '80% Loading',
-            color='red',
-            fontsize=9,
-            fontweight='bold',
-        )
-      ax.set_xlim(pd.to_datetime(start_date), pd.to_datetime(end_date) + pd.Timedelta(days=1))
+      # Add 80% Loading reference line
+      fig.add_trace(go.Scatter(
+          x=df_selected[time_col],
+          y=[avg_limit_value] * len(df_selected),
+          mode='lines',
+          name='80% Loading Limit',
+          line=dict(color='red', dash='dash', width=1.5),
+          hovertemplate=f'<b>80% Limit</b>: {avg_limit_value:.2f} A<extra></extra>'
+      ))
+
+      fig.update_layout(
+          title=dict(
+              text=f'<b>DT ID: {dt_id} | Meter No: {meter_no} | Capacity: {capacity} kVA</b><br><sup>DT Loading Status as per IEC OL Criteria (Filtered Range)</sup>',
+              font=dict(size=14)
+          ),
+          xaxis_title='<b>Timestamp</b>',
+          yaxis_title='<b>Current (Amperes)</b>',
+          hovermode='x unified',
+          template='plotly_white',
+          height=500,
+          margin=dict(l=50, r=30, t=80, b=50)
+      )
+      
+      st.plotly_chart(fig, use_container_width=True)
     else:
-      ax.text(
-          0.5,
-          0.5,
-          'No data available for the selected date range',
-          horizontalalignment='center',
-          verticalalignment='center',
-          transform=ax.transAxes,
-          fontsize=12,
-          color='gray',
-      )
-
-    title_str = (
-        f'DT ID: {dt_id}  |  Meter No: {meter_no}  |  Capacity: {capacity}'
-    )
-    fig.suptitle(title_str, fontsize=11, fontweight='bold', y=0.96)
-    ax.set_title(
-        'DT Loading Status as per IEC OL Criteria (Filtered Range)',
-        fontsize=10,
-        fontweight='bold',
-        pad=15,
-    )
-
-    ax.set_xlabel('Timestamp', fontsize=10, fontweight='bold')
-    ax.set_ylabel('Current (Amperes)', fontsize=10, fontweight='bold')
-
-    ax.grid(True, linestyle='--', alpha=0.5)
-    ax.legend(loc='upper left')
-
-    plt.subplots_adjust(top=0.88, bottom=0.1, left=0.08, right=0.95)
-    st.pyplot(fig)
+      st.warning('No data available for the selected date range.')
 
     with st.expander('View Filtered Raw Data Records for Selected DT'):
       st.dataframe(df_selected)
@@ -409,7 +383,7 @@ if uploaded_files:
       return output.getvalue()
 
 
-    # PDF Generator Function
+    # PDF Generator Function (Matplotlib is kept here specifically to render clean static high-res images for PDF report exports)
     def generate_pdf_report(target_df, m_id, s_date, e_date):
       d_sel, d_id, m_no, cap, l_series, c_col, t_data = analyze_dt(
           target_df, m_id
