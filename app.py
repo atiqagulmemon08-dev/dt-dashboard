@@ -21,22 +21,27 @@ st.set_page_config(
 
 st.title('⚡ Distribution Transformer (DT) Overloading Dashboard')
 st.markdown(
-    'Upload your master dataset containing multiple DTs to analyze IEC'
+    'Upload your master dataset(s) containing multiple DTs to analyze IEC'
     ' overloading criteria, visualize graphs interactively, select custom'
     ' time slots, and export professional PDF and Excel reports.'
 )
 
-uploaded_file = st.file_uploader(
-    'Upload Master CSV File (Multi-DT Data)', type=['csv']
+# UPDATED: accept_multiple_files=True allows uploading multiple files simultaneously
+uploaded_files = st.file_uploader(
+    'Upload Master CSV File(s) (Multi-DT Data)', type=['csv'], accept_multiple_files=True
 )
 
-if uploaded_file is not None:
+if uploaded_files:
 
   @st.cache_data
-  def load_data(file):
-    return pd.read_csv(file)
+  def load_data(files):
+    df_list = []
+    for file in files:
+      temp_df = pd.read_csv(file)
+      df_list.append(temp_df)
+    return pd.concat(df_list, ignore_index=True)
 
-  df = load_data(uploaded_file)
+  df = load_data(uploaded_files)
 
   # Automatically find the time/date column
   possible_time_cols = [
@@ -739,4 +744,4 @@ if uploaded_file is not None:
           use_container_width=True,
       )
 else:
-  st.info('Please upload your master CSV file using the file uploader above.')
+  st.info('👆 Please upload your master CSV file(s) using the file uploader above.')
